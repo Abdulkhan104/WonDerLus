@@ -1,39 +1,87 @@
-const mongoose = require("mongoose");
-const review = require("./review");
-const Schema = mongoose.Schema;
-const Review = require("./review.js");
+const express = require("express");
+const router = express.Router();
+const wrapAsync = require("../utils/wrapAsync.js");
+const ExpressError = require("../utils/ExpressError.js");
+const { listingSchema} = require("../schemaa.js");
+const Listing = require("../models/listing.js");
+const {isLoggedIn} = require("../middeleware.js");
 
-const listingSchema = new Schema({
-  title: {
-    type: String,
-    required: true,
-  },
-  description: String,
-  image: {
-    type: String,
-    default:
-      "https://images.unsplash.com/photo-1625505826533-5c80aca7d157?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTJ8fGdvYXxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60",
-    set: (v) =>
-      v === ""
-        ? "https://images.unsplash.com/photo-1625505826533-5c80aca7d157?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTJ8fGdvYXxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&w=800&q=60"
-        : v,
-  },
-  price: Number,
-  location: String,
-  country: String,
-  reviews:[
-    {
-      type: Schema.Types.ObjectId,
-      ref:"Review",
-    },
-  ],
-});
 
-listingSchema.post("findOneAndDelete",async(listing)=>{
-  if(listing){
-    await Review.deleteMany({_id:{ $in: listing.reviews}});
-  }
-});
 
-const Listing = mongoose.model("Listing", listingSchema);
-module.exports = Listing;
+const validateListing = (req, res, next) => {
+    let { error } = listingSchema.validate(req.body);
+    if (error) {
+      let errMsg = error.details.map((el)=> el.message).join(",");
+      throw new ExpressError(400,errMsg);
+    } else {
+      next();
+    }
+  };
+  
+
+// Index Route
+router.get("/", 
+    wrapAsync(async (req, res) => {
+    const allListings = await Listing.find({});
+    res.render("listings/index.ejs", { allListings });
+  }));
+  
+  
+  //New Route
+  router.get("/new", (req, res) => {
+    res.render("listings/new.ejs");
+  });
+  
+  //Show Route
+  router.get("/:id", 
+    wrapAsync(async (req, res) => {
+    let { id } = req.params;
+    const listing = await Listing.findById(id).populate("reviews");
+    if( !listing ){
+      req.flash("error","Listing you requested for does not exist!!");
+      res.redirect("/listings");
+    }
+    res.render("listings/show.ejs", { listing });
+  }));
+
+  //Create Route
+  router.post(
+    "/", validateListing,
+    wrapAsync(async (req, res, next) => {
+      const newListing = new Listing(req.body.listing);
+      await newListing.save();
+      req.flash("success", "New Listing Created ..");
+      res.redirect("/listings");
+    })
+  );
+  
+  //Edit Route
+  router.get("/:id/edit", wrapAsync(async (req, res) => {
+    let { id } = req.params;
+    const listing = await Listing.findById(id);
+    if( !listing ){
+      req.flash("error","Listing you requested for does not exist!!");
+      res.redirect("/listings");
+    }
+    req.flash("success", "Listing Edited..");
+    res.render("listings/edit.ejs", { listing });
+  }));
+  
+  //Update Route
+  router.put("/:id",validateListing, wrapAsync(async (req, res) => {
+    let { id } = req.params;
+    await Listing.findByIdAndUpdate(id, { ...req.body.listing });
+    req.flash("success", "Listing Updated..");
+    res.redirect(`/listings/${id}`);
+  }));
+  
+  //Delete Route
+  router.delete("/:id", wrapAsync(async (req, res) => {
+    let { id } = req.params;
+    let deletedListing = await Listing.findByIdAndDelete(id);
+    req.flash("success", "Listing Deleted");
+    res.redirect("/listings");
+  }));
+
+  module.exports= router;
+  
